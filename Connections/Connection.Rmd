@@ -1,0 +1,860 @@
+---
+title: "Connections"
+author: "Olivia Modesto"
+date: "10-02-2025"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE, echo = TRUE, eval = TRUE, message=FALSE, warning = FALSE, fig.align='center')
+```
+# Che cos'è Connections ?
+
+Connections è un gioco sviluppato e pubblicato dal New York Times. In questo gioco sono proposte sedici parole in una griglia 4x4. L'obbiettivo del gioco è raggruppare le parole in quattro categorie di quattro parole ciascuna.\
+Le parole raggruppate possono essere sinomini, possono avere caratteristiche condivise, oppure formare associazioni di altro tipo.\
+Queste quattro categorie hanno diversi livelli di difficoltà, indicati con colori diversi. Dal più facile al più difficile si ha : giallo, verde, blu, viola.\
+L'obiettivo di questo progetto è analizzare i dati delle partite precedenti e scoprire se soluzioni o parti di soluzioni sono state riutilizzate e, più in generale, se possiamo imparare qualcosa riguardante il gioco stesso.\
+L'analisi è stata svolta modellando il problema in due modi: in base ai gruppi di appartenenza delle parole e in base alle partite.
+
+## Downloads
+
+Il dataset utilizzato per questo progetto è contenuto nel file Connection_Data.csv.\
+Questo è stato creato da Eric Nunes e si trova su Kaggle nella pagina The New York Time Connections Archive.\
+https://www.kaggle.com/datasets/eric27n/the-new-york-times-connections
+\
+Il dataset si compone di sei colonne:\
+- Game.ID : numero intero che permette di identificare in modo unico una partita \
+- Puzzle.Data : data della partita in formato YYYY-MM-DD \
+- Word : parola proposta nella partita\
+- Group.Name : gruppo di appartenenza della parola\
+- Group.Level : livello di difficoltà del gruppo\
+- Starting.Row : riga nella quale si colloca la parola\
+- Starting.Column : colonna nella quale si colloca la parola\
+
+## Caricamento delle librerie utilizzate e apertura del dataset iniziale
+
+Per prima cosa si importano le librarie che verranno utilizzate per l'analisi.
+```{importa librerie}
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+library(igraph)
+library(dplyr)
+library(ggplot2)
+library(lpSolve)
+library(lpSolveAPI)
+library(RColorBrewer)
+```
+
+Il file con i dati viene aperto e i dati vengono caricati nell'ambiente. Vengono individuate le parole utilizzate nelle partite e collocate in un dataframe. Questo funge da "dizionario" del gioco: è un elenco completo di tutte le parole utilizzate.
+
+```{apertura dati}
+
+raw <- read.csv("R_script/connections_data/Connections_Data.csv", header=TRUE)
+
+dictionary <- raw[, "Word"]
+df_dictionary <- data.frame(dictionary)
+df_dictionary <- unique(df_dictionary)
+rm(dictionary)
+
+```
+
+## Creazione del grafo per l'analisi in base ai gruppi di appartenenza
+
+Per svolgere l'analisi delle parole in base ai gruppi di appartenenza è stato creato un grafo indiretto.
+In questo grafo i vertici rappresentano le parole nel dizionario e gli archi uniscono le parole che appartengono allo stesso gruppo. Ci possono essere più archi tra due nodi. I vertici sono etichettati con le parole corrispondenti e gli archi sono etichettati con i colori indicanti la difficoltà del gruppo di appartenenza. I livelli di difficoltà presenti nel dataset sono indicati con dei numeri da 0 a 3. Nel grafo realizzato è stato scelto di indicare i livelli direttamente con i colori corrispondenti:\
+ "0" -> "yellow"\
+ "1" -> "green"\
+ "2" -> "blue"\
+ "3" -> "purple"\
+Il grafo ottenuto si chiama g_stesso_gruppo.
+
+```{creazione grafo g_stesso_gruppo}
+
+word_group_level <- raw[, c("Word", "Group.Name", "Group.Level")]
+nrows <- nrow(data["Word"])
+
+difficulty_pair <- c()
+index <- 1
+
+for (i in 1:nrows){
+  
+  curr_word <- word_group_level$Word[i]
+  curr_group <- word_group_level$Group.Name[i]
+  
+  print(paste0("Trova vicini del vertice ", i, "-esimo: ", curr_word, " nel gruppo ", curr_group))
+  
+  for(j in i:nrows){
+    match_group <- word_group_level$Group.Name[j]
+    
+    print(paste0("Gruppo trovato : ", match_group))
+    
+    if(curr_group == match_group){
+      match_word <- word_group_level$Word[j]
+      difficulty_degree <- word_group_level$Group.Level[j]
+      new_set <- c(curr_word, match_word, difficulty_degree)
+    
+      print("MATCH ! ")
+      
+      difficulty_pair[[index]] <- new_set
+      index <- index+1
+      
+    }
+  }
+}
+
+rm(match_word)
+rm(curr_word)
+rm(curr_group)
+rm(match_group)
+rm(difficulty_degree)
+rm(new_set)
+rm(i)
+rm(j)
+rm(index)
+
+df_pairing <- do.call(rbind, difficulty_pair)
+
+colnames(df_pairing) <- c("to", "from", "difficulty")
+df_pairing <- data.frame(df_pairing)
+
+df_pairing <- subset(df_pairing, (df_pairing$to != df_pairing$from))
+
+g_stesso_gruppo <- tbl_graph(nodes = df_dictionary, edges = df_pairing, directed = FALSE)
+
+for (i in 1:nrow(df_pairing)){
+  
+  print(paste0("Etichetta arco numero : ", i))
+  E(g_stesso_gruppo)[i]$weight <- df_pairing$difficulty[i]
+  
+  if (df_pairing$difficulty[i] == "0"){
+    E(g_stesso_gruppo)[i]$color <- "yellow"
+  }else if (df_pairing$difficulty[i] == "1"){
+    E(g_stesso_gruppo)[i]$color <- "green"
+  }else if (df_pairing$difficulty[i] == "2"){
+    E(g_stesso_gruppo)[i]$color <- "blue"
+  }else{
+    E(g_stesso_gruppo)[i]$color <- "purple"
+  }
+  
+}
+
+# etichettare i grafi con in vocaboli corretti
+
+for (i in 1:vcount(g_stesso_gruppo)){
+  
+  print(paste0("Etichetta vertice numero : ", i))
+  V(g_stesso_gruppo)[i]$label <- df_dictionary$dictionary[i]
+}
+
+```
+
+## Creazione del grafo per l'analisi in base alle partite 
+
+Per svolgere l'analisi delle parole in base alle partite nelle quali sono state utilizzate è stato creato un grafo indiretto.
+In questo grafo i vertici rappresentano le parole nel dizionario e gli archi uniscono le parole che hanno una partita in comune. Ci possono essere più archi tra due nodi. I vertici sono etichettati con le parole corrispondenti e gli archi sono etichettati con i colori indicanti di quale partita si tratta. Le partite sono rappresentate con colori diversi.\
+Il grafo ottenuto si chiama g_stessa_partita.
+```{creazione grafo g_stessa_partita}
+
+gameId_word <- raw[, c("Game.ID", "Word")]
+
+game_session_pairing <- c()
+index <- 1
+
+for (i in 1:nrows){
+  
+  curr_word <- gameId_word$Word[i]
+  curr_game <- gameId_word$Game.ID[i]
+  
+  print(paste0("Trova vicini del vertice ", i, "-esimo: ", curr_word, " della partita ", curr_game))
+  
+  for(j in i:nrows){
+    match_game <- gameId_word$Game.ID[j]
+    
+    print(paste0("Partita trovata : ", match_game))
+    
+    if(curr_game == match_game){
+      match_word <- gameId_word$Word[j]
+      
+      new_pair <- c(curr_word, match_word, match_game)
+      print("MATCH! ")
+      game_session_pairing[[index]] <- new_pair
+      index <- index+1
+      
+    }
+  }
+}
+
+rm(curr_word)
+rm(curr_game)
+rm(match_game)
+rm(match_word)
+rm(new_pair)
+rm(i)
+rm(j)
+rm(index)
+
+
+df_pairing_2 <- do.call(rbind, game_session_pairing)
+
+colnames(df_pairing_2) <- c("to", "from", "session")
+df_pairing_2 <- data.frame(df_pairing_2)
+
+df_pairing_2 <- subset(df_pairing_2, (df_pairing_2$to != df_pairing_2$from))
+
+g_stessa_partita <- tbl_graph(nodes = df_dictionary, edges = df_pairing_2, directed = FALSE)
+
+n_colors <- 619
+
+library(circlize)
+
+session_palette <- rand_color(n = n_colors, luminosity = "dark")
+
+unloadNamespace(circlize) # circlize interferisce con altre librerie, quindi viene rimossa subito
+
+for (i in 1:nrow(df_pairing_2)){
+  print(paste0("Etichetta arco numero : ", i))
+  
+  E(g_stessa_partita)[i]$weight <- df_pairing_2$session[i]
+  
+  which_color <- strtoi(df_pairing_2$session[i])
+  print(which_color)
+  
+  E(g_stessa_partita)[i]$color <- session_palette[which_color]
+
+}
+
+
+for (i in 1:vcount(g_stessa_partita)){
+  print(paste0("Etichetta vertice numero : ", i))
+  V(g_stessa_partita)[i]$label <- df_dictionary$dictionary[i]
+}
+
+rm(i)
+rm(n_colors)
+rm(which_color)
+rm(session_palette)
+
+```
+
+## Analisi in base al gruppo di appartenenza
+
+Si vuole utilizzare il grafo g_stesso_gruppo per studiare le relazioni tra le parole utilizzate e scoprire alcune caratteristiche complessive del gioco. Ad esempio, se esistono coppie o raggruppamenti riutilizzati più e più volte.\
+\
+Per prima cosa sono analizzate le caratteristiche globali del grafo. Sono individuate le componenti connesse del grafo.\
+Quello che emerge è che esiste una componente connessa principale e tanti piccoli raggruppamenti di 4 - 7 nodi.\
+La componente connessa è rappresentata come un grafo chiamato g_stesso_gruppo_main_component.
+
+```{trova componenti connesse di g_stesso_gruppo}
+
+components_word_groups <- components(g_stesso_gruppo)
+
+not_main_component <- which(components_word_groups$membership != which.max(components_word_groups$csize))
+
+g_stesso_gruppo_main_component <- delete_vertices(g_stesso_gruppo, not_main_component)
+
+rm(not_main_component)
+
+```
+
+&Egrave; stato scelto di concentrare l'analisi sulla componente connessa principale.\
+&Egrave; stato calcolato il rapporto tra il numero di archi contenuti nella componente principale e l'intero grafo in base ai livelli di difficoltà. Quello che emerge è che i quattro livelli di difficoltà hanno distribuzioni molto simili.
+
+```{calcola le frazioni di archi di g_stesso_gruppo}
+
+degree_main_component <- degree(g_stesso_gruppo_main_component)
+
+levels_main_component <- E(g_stesso_gruppo_main_component)$color
+
+num_yellow <- sum(levels_main_component == "yellow")
+num_green <- sum(levels_main_component == "green")
+num_blue <- sum(levels_main_component == "blue")
+num_purple <- sum(levels_main_component == "purple")
+
+levels_g_stesso_gruppo <- E(g_stesso_gruppo)$color
+
+
+total_yellow <- sum(levels_g_stesso_gruppo  == "yellow")
+total_green <- sum(levels_g_stesso_gruppo == "green")
+total_blue <- sum(levels_g_stesso_gruppo == "blue")
+total_purple <- sum(levels_g_stesso_gruppo == "purple")
+
+frac_yellow <- num_yellow/total_yellow
+frac_green <- num_green/total_green
+frac_blue <- num_blue/total_blue
+frac_purple <- num_purple/total_purple
+
+
+```
+
+Viene creato un dataframe contenente tutti gli archi della componente principale rappresentati come coppie di nodi. Questo verrà utilizzato più avanti.
+
+```{crea elenco con archi della componente principale}
+
+edgelist <- as_edgelist(g_stesso_gruppo_main_component, name = TRUE)
+
+df_edgelist <- data.frame(edgelist)
+
+colnames(df_edgelist) <- c("to", "from")
+
+
+```
+
+Si calcola la betweenness della componente principale. Questa ci permette di scoprire se esistono parole "ponte" tra cluster, parole che possono appartenere a gruppi piuttosto diversi.  
+
+```{calcolo betweenness componente principale}
+
+# betweenness
+# i pesi degli archi in g_stesso_gruppo_main_component dipendono dalla difficoltà
+# per questa parte di analisi, la difficoltà non ci interessa.
+# si crea una copia del grafo. Tutti i nodi hanno lo stesso peso.
+
+g_corrected_weights <- g_stesso_gruppo_main_component
+
+for (i in 1:ecount(g_corrected_weights)){
+  E(g_corrected_weights)[i]$weight <- 1
+}
+
+corrected_weights_betweenness <- betweenness(g_corrected_weights, normalized = TRUE)
+corrected_weights_betweenness <- data.frame(corrected_weights_betweenness)
+corrected_weights_betweenness$word <- V(g_corrected_weights)$label
+colnames(corrected_weights_betweenness) <- c("betweenness", "word")
+corrected_weights_betweenness <- corrected_weights_betweenness[order(corrected_weights_betweenness$betweenness, decreasing = TRUE), ] 
+
+
+```
+
+Si calcola il diametro della componente principale. Questo ci permette di scoprire alcune proprietà della connettività del grafo.
+
+```{Calcolo il diametro della componente principale}
+
+# diameter of graph
+
+diameter_main_component <- get_diameter(g_stesso_gruppo_main_component)
+word_diameter <- c()
+
+for (i in diameter_main_component){
+  word_diameter <- append(word_diameter, V(g_stesso_gruppo_main_component)[i]$label)
+}
+
+```
+
+Si calcola la closeness centrality della componente principale. Questo ci permette di capire che distanze ci sono tra le parole. Combinando questa informazione con quello che sappiamo della betweeness e della diagonale possiamo discutere della complessità del gioco e di questi raggruppamenti.
+
+```{Calcolo la closeness centrality della componente principale}
+
+
+main_component_closeness_centrality <- closeness(g_corrected_weights, normalized = TRUE)
+main_component_closeness_centrality <- data.frame(main_component_closeness_centrality)
+
+main_component_closeness_centrality$word <- V(g_corrected_weights)$label
+
+
+colnames(main_component_closeness_centrality) <- c("closeness", "word")
+
+main_component_closeness_centrality <- main_component_closeness_centrality[order(main_component_closeness_centrality$closeness, decreasing = TRUE), ] 
+
+
+```
+
+Infine si calcola la transitività della componente principale, che fornisce ulteriori informazioni sulla clusterizzazione delle nostre parole di intersse.
+
+```{Calcolo transitività della componente principale}
+
+transitivity_main_component <- transitivity(g_stesso_gruppo_main_component)
+
+```
+
+L'analisi prosegue con lo studio delle proprietà dei singoli nodi. Il grado di ogni nodo della componente principale viene calcolato. Questo viene collocato in un dataframe assieme alla parola corrispondente.\
+Il dataframe è poi ordinato in ordine decrescente in base al grado dei nodi.
+
+```{calcola il grado dei vertici di g_stesso_gruppo}
+
+degree_main_component <- sort(degree_main_component, index.return=TRUE, decreasing=TRUE)
+
+#view degree distribution 
+df_degree_main_component <- data.frame(degree_main_component)
+
+rm(degree_main_component)
+
+colnames(df_degree_main_component) <- c("degree", "index")
+
+# crea colonna con le etichette dei nodi
+degree_labels <- c()
+
+for(i in df_degree_main_component$index){
+  degree_labels <- append(degree_labels, V(g_stesso_gruppo_main_component)[i]$label)
+}
+
+df_degree_main_component$label <- degree_labels
+
+```
+
+Lo studio della degree centrality è ampliato con il calcolo della eigenvector centrality della componente principale. Come prima questo viene collocato in un dataframe assieme alla parola corrispondente.\
+Il dataframe è poi ordinato in ordine decrescente in base alla eigenvector centrality dei nodi.
+
+```{Calcolo la eigenvector centrality della componente principale}
+
+main_component_eigenvector_centrality <- eigen_centrality(g_corrected_weights)
+
+main_component_eigenvector_centrality <- data.frame(main_component_eigenvector_centrality$vector)
+
+main_component_eigenvector_centrality$word <- V(g_corrected_weights)$label
+
+colnames(main_component_eigenvector_centrality) <- c("eigen", "word")
+
+main_component_eigenvector_centrality <- main_component_eigenvector_centrality[order(main_component_eigenvector_centrality$eigen, decreasing = TRUE), ] 
+
+```
+
+Infine sono state individuate le coppie di nodi con il maggior numero di archi tra loro. Questo è stato fatto sfruttando la matrice di adiacenza della componente principale. Anche questi sono collocati in un dataframe.
+
+```{Calcolo coppie più popolari della componente principale}
+
+# trova le coppie più popolari
+
+A_g_stesso_gruppo_main_component <- as_adjacency_matrix(g_stesso_gruppo_main_component)
+
+highest_paircount <- max(A_g_stesso_gruppo_main_component)
+
+pairs <- which(A_g_stesso_gruppo_main_component == highest_paircount, arr.ind = TRUE)
+
+pairs <- data.frame(pairs)
+
+index <- 1
+for(i in pairs$row){
+  
+  
+  word_name <- V(g_stesso_gruppo_main_component)[i]$label 
+  print(word_name)
+  
+  pairs$row[index] <- word_name
+  index <- index+1
+}
+
+
+index <- 1
+for(i in pairs$col){
+  
+  word_name <- V(g_stesso_gruppo_main_component)[i]$label 
+  print(word_name)
+  
+  pairs$col[index] <- word_name
+  index <- index+1
+}
+
+rm(index)
+rm(word_name)
+
+```
+
+## Analisi in base alle partite di appartenenza
+
+Si vuole utilizzare il grafo g_stessa_partita per studiare le relazioni tra le parole utilizzate in base alle partite nelle quali compaiono.\
+\
+Come nella prima parte sono analizzate le caratteristiche globali del grafo. Sono individuate le componenti connesse del grafo.\
+Il grafo delle partite non risulta connesso, ma a differenza di prima non esiste una componente connessa di maggiore interesse rispetto alle altre. Quindi l'intero grafo è oggetto di analisi.
+
+```{Calcolo cluster del grafo g_stessa_partita}
+
+# clustering
+
+clusters_g_stessa_partita <- cluster_leading_eigen(g_stessa_partita)
+
+community_g_stessa_partita_sizes <- sizes(clusters_g_stessa_partita)
+
+```
+
+L'analisi portata avanti sul grafo è molto simile a quella svolta nella prima parte. Sono studiate le proprietà del grafo complessivo, e poi anche dei singoli nodi.\
+\
+Viene calcolata la betweenness del grafo g_stessa_partita. Questa risulta essere più elevata rispetto all'altro grafo. Questo potrebbe significare che ci sono parole che compaiono in più sessioni di gioco e collegano parole altrimenti non connesse.
+
+```{Calcolo betweenness del grafo g_stessa_partita}
+
+betweenness_g_stessa_partita <- betweenness(g_stessa_partita, normalized = TRUE)
+betweenness_g_stessa_partita <- data.frame(betweenness_g_stessa_partita)
+betweenness_g_stessa_partita$word <- V(g_stessa_partita)$label
+colnames(betweenness_g_stessa_partita) <- c("betweenness", "word")
+betweenness_g_stessa_partita <- betweenness_g_stessa_partita[order(betweenness_g_stessa_partita$betweenness, decreasing = TRUE), ] 
+
+```
+
+Viene calcolato il diametro del grafo g_stessa_partita.\
+Il diametro di questo grafo è più piccolo del primo grafo. Questo potrebbe indicare che le parole sono più connesse. Di conseguenza, potrebbe essere più facile trovare connessioni tra parole rispetto al primo modello.
+
+```{Calcolo diametro del grafo g_stessa_partita}
+
+diameter_stessa_partita <- get_diameter(g_stessa_partita)
+word_diameter_stessa_partita <- c()
+
+for (i in diameter_stessa_partita){
+  word_diameter_stessa_partita <- append(word_diameter_stessa_partita, V(g_stessa_partita)[i]$label)
+}
+
+```
+
+Viene calcolata la closeness centrality del grafo g_stessa_partita. La closeness centrality è di alcuni ordini più piccoli rispetto a quella vista con il modello precedente. Quindi le parole sono meno strettamente connesse globalmente.
+
+```{Calcolo closeness centrality del grafo g_stessa_partita}
+
+stessa_partita_closeness_centrality <- closeness(g_stessa_partita, normalized = TRUE)
+stessa_partita_closeness_centrality <- data.frame(stessa_partita_closeness_centrality)
+
+stessa_partita_closeness_centrality$word <- V(g_stessa_partita)$label
+
+
+colnames(stessa_partita_closeness_centrality) <- c("closeness", "word")
+
+stessa_partita_closeness_centrality <- stessa_partita_closeness_centrality[order(stessa_partita_closeness_centrality$closeness, decreasing = TRUE), ] 
+
+```
+
+A questo punto sono calcolati i gradi dei vertici del grafo g_stessa_partita. 
+
+```{Calcolo grado del grafo g_stessa_partita}
+
+degree_g_stessa_partita <- degree(g_stessa_partita)
+
+degree_g_stessa_partita <- data.frame(degree_g_stessa_partita)
+
+colnames(degree_g_stessa_partita) <- c("degree")
+
+degree_g_stessa_partita$word <- df_dictionary$dictionary
+
+degree_g_stessa_partita <- degree_g_stessa_partita[order(degree_g_stessa_partita$degree, decreasing=TRUE),]
+
+```
+
+Come prima, lo studio dei gradi viene esteso con il calcolo della eigenvector centrality del grafo g_stessa_partita.
+
+```{Calcolo eigenvector centrality del grafo g_stessa_partita}
+
+eigen_centrality_g_stessa_partita <- eigen_centrality(g_stessa_partita)
+
+eigen_centrality_g_stessa_partita <- data.frame(eigen_centrality_g_stessa_partita$vector)
+
+eigen_centrality_g_stessa_partita$word <- V(g_stessa_partita)$label
+
+colnames(eigen_centrality_g_stessa_partita) <- c("eigen", "word")
+
+eigen_centrality_g_stessa_partita <- eigen_centrality_g_stessa_partita[order(eigen_centrality_g_stessa_partita$eigen, decreasing = TRUE), ] 
+
+```
+
+Un'ulteriore analisi è stata svolta sui nomi dei gruppi. In particolare se esistono nomi di gruppi utilizzati più volte. Questo potrebbe fornire ulteriori informazioni sul tipo di raggruppamenti che vengono proposti.\
+Sono individuati i gruppi utilizzati in più di una partita.
+
+```{Individua i gruppi utilizzati più di una volta}
+
+game_group <- raw[, c("Game.ID", "Group.Name")]
+group_num_occurances <- table(game_group$Group.Name)
+group_num_occurances <- data.frame(group_num_occurances)
+colnames(group_num_occurances) <- c("name", "freq")
+
+group_num_occurances <- group_num_occurances[order(group_num_occurances$freq, decreasing=TRUE),]
+
+```
+
+## Plot dei grafici
+Vogliamo visualizzare i dati e i grafi ottenuti. Segue il codice utilizzato per generare le immagini utilizzate nelle slide.\
+\
+Viene riportato il codice del plot del grafo g_stesso_gruppo, senza evidenziare i livelli di difficoltà dei gruppi.
+
+```{Plot g_stesso_gruppo}
+
+ggraph(g_stesso_gruppo, layout = 'stress') + 
+  geom_edge_link(color = "lightblue",  arrow = arrow(type = "closed", length = unit(0.5, "mm")), alpha = 0.3 ) + 
+  geom_node_point(colour = "blue", size = 0.5, alpha = 0.03) +
+  theme_graph(background = "white")
+
+```
+
+Viene riportato il codice del plot del grado g_stesso_gruppo_main_component, con i livelli di difficoltà visibili.
+
+```{Plot g_stesso_gruppo_main_component}
+
+par(bg = 'grey')
+plot(g_stesso_gruppo_main_component, vertex.label=NA, vertex.size=1, layout = layout_as_tree)
+
+```
+
+Viene riportato il codice della generazione della word cloud utilizzata per rappresentare la degree centrality di g_stesso_gruppo_main_component.
+
+```{Word cloud g_stesso_gruppo_main_component}
+
+library("htmlwidgets")
+library(wordcloud2)
+library(webshot)
+webshot::install_phantomjs()
+
+wordcloud <- df_degree_main_component$label
+wordcloud <- data.frame(wordcloud)
+wordcloud$freq <- df_degree_main_component$degree
+colnames(wordcloud) <- c("word", "freq")
+
+stessa_partita_wordcloud <- wordcloud2(data=wordcloud, size=0.5)
+
+# save it in html
+saveWidget(stessa_partita_wordcloud,"tmp.html",selfcontained = F)
+
+# and in png or pdf
+webshot("tmp.html","Rplot04.png", delay =10, vwidth = 1200, vheight=1200)
+
+rm(wordcloud)
+rm(stessa_partita_wordcloud)
+
+
+```
+
+Viene riportato il codice della creazione dello scatter plot utilizzato per rappresentare la degree centrality di g_stesso_gruppo_main_component.
+
+```{scatter plot g_stesso_gruppo_main_component}
+
+plot(1:nrow(df_degree_main_component), df_degree_main_component$degree, 
+     main= "Degree dei nodi ",
+     xlab= "number",
+     ylab= "degree",
+     col= "lightblue",
+     pch = 15,
+     cex = 0.4,
+     lty = "solid",
+     lwd = 2)
+```
+
+Viene riportato il codice della creazione del bar plot per rappresentare la degree centrality di g_stesso_gruppo_main_component.
+
+```{generazione del Bar plot g_stesso_gruppo_main_component}
+
+barplot(df_degree_main_component$degree[1:15],
+        names.arg = df_degree_main_component$label[1:15],
+        las=2,
+        cex.name=1,
+        ylim=c(0, 80),
+        col= "lightblue",
+        main= "Parole più popolari",
+        ylab= "degree",
+        xpd = FALSE)
+
+```
+
+Viene riportato il codice della creazione del bar plot per rappresentare la eigenvector centrality di g_stesso_gruppo_main_component
+
+```{generazione del bar plot della eigenvector g_stesso_gruppo_main_component}
+
+barplot_eigen_main_component <- main_component_eigenvector_centrality
+rownames( barplot_eigen_main_component ) <- seq(1:nrow(barplot_eigen_main_component))
+
+barplot(barplot_eigen_main_component$eigen[1:15],
+        names.arg = barplot_eigen_main_component$word[1:15],
+        las=2,
+        cex.name=1,
+        ylim=c(0, 1.5),
+        col= "lightblue",
+        main= "Parole più popolari",
+        ylab= "degree",
+        xpd = FALSE)
+
+rm(barplot_eigen_main_component)
+```
+
+Viene riportato il codice della generazione del grafo g_stessa_partita.
+
+```{Generazione plot grafo g_stessa_partita}
+
+ggraph(g_stessa_partita, layout = 'stress') + 
+  geom_edge_link(color = "lightblue",  arrow = arrow(type = "closed", length = unit(0.5, "mm")), alpha = 0.3 ) + 
+  geom_node_point(colour = "blue", size = 0.5, alpha = 0.03) +
+  theme_graph(background = "white")
+
+```
+
+Viene riportato il codice della generazione del grafo g_stessa_partita evidenziando le diverse partite con colori diverse.
+
+```{Geneazione del plot etichettato grafo g_stessa_partita}
+
+par(bg = 'grey')
+plot(g_stessa_partita, vertex.label=NA, vertex.size=1, layout = layout_as_tree)
+
+
+```
+
+Viene riportato il codice della creazione della word cloud per rappresentare la degree centrality del grafo g_stessa_partita.
+
+```{Geneazione word cloud grafo g_stessa_partita}
+
+wordcloud <- degree_g_stessa_partita$word
+wordcloud <- data.frame(wordcloud)
+wordcloud$freq <- degree_g_stessa_partita$degree
+colnames(wordcloud) <- c("word", "freq")
+
+stessa_partita_wordcloud <- wordcloud2(data=wordcloud, size=0.1)
+
+# save it in html
+saveWidget(stessa_partita_wordcloud,"tmp.html",selfcontained = F)
+
+# and in png or pdf
+webshot("tmp.html","Rplot27.png", delay =20, vwidth = 800, vheight=600)
+
+rm(wordcloud)
+rm(stessa_partita_wordcloud)
+
+```
+
+Viene riportato il codice della creazione del barplot rappresentante i gradi di alcuni nodi del grafo g_stessa_partita.
+
+```{barplot degree assoluta g_stessa_partita}
+
+# Rplot32
+barplot(degree_g_stessa_partita$degree[1:25],
+        names.arg = degree_g_stessa_partita$word[1:25],
+        las=2,
+        cex.name=0.5,
+        ylim=c(0, 300),
+        col= "lightblue",
+        main= "Parole più popolari",
+        ylab= "degree",
+        xpd = FALSE)
+
+```
+
+Viene riportato il codice della creazione del barplot rappresentante la eigenvector centrality di g_stessa_partita.
+
+```{barplot eigenvector degree g_stessa_partita}
+
+barplot_eigen_stesso_gruppo <- eigen_centrality_g_stessa_partita
+rownames( barplot_eigen_stesso_gruppo ) <- seq(1:nrow(barplot_eigen_stesso_gruppo))
+
+barplot(barplot_eigen_stesso_gruppo$eigen[1:25],
+        names.arg = barplot_eigen_stesso_gruppo$word[1:25],
+        las=2,
+        cex.name=0.5,
+        ylim=c(0, 1.5),
+        col= "lightblue",
+        main= "Parole più popolari",
+        ylab= "degree",
+        xpd = FALSE)
+
+rm(barplot_eigen_main_component)
+
+```
+
+Viene riportato il codice del barplot rappresentante il numero di volte in cui i nomi dei gruppi sono stati utilizzati.
+
+```{barplot gruppi ripetuti}
+relabeled_group_num_occurances <- group_num_occurances
+
+rownames(relabeled_group_num_occurances) <- seq(1,2183)
+
+
+barplot(relabeled_group_num_occurances$freq[1:25]/4,
+        names.arg = relabeled_group_num_occurances$name[1:25],
+        las=2,
+        cex.name=0.5,
+        ylim=c(0, 10),
+        col= "lightblue",
+        main= "Riutilizzo di gruppi",
+        ylab= "numero utilizzi",
+        xpd = FALSE)
+```
+
+Viene riportato il codice della generazione delle linee del tempo per visualizzare l'utilizzo dei gruppi nel tempo.\
+Per questa parte è stata creata una funzione find_timeline, che crea un dataframe adatto ad essere plottato con ggplot.
+
+```{generazione linee del tempo}
+
+date_name_level <- raw[, c("Puzzle.Date", "Group.Name", "Group.Level")]
+date_name_level <- data.frame(date_name_level)
+
+
+find_timeline = function(word){
+  
+  occurrances <- which(date_name_level$Group.Name == word)
+  date_occurrances <- c()
+  index <- 1
+  
+  for(i in occurrances){
+    date_occurrances[index] <- date_name_level$Puzzle.Date[i]
+    index <- index+1
+  }
+  
+  date_occurrances <- unique(date_occurrances)
+  
+  
+  tb <- data.frame(what = date_occurrances,
+                   when = ymd(date_occurrances),
+                   event.type = word )
+
+  return(tb)
+}
+
+HOMOPHONES_tb <- find_timeline("HOMOPHONES")
+FISH_tb <- find_timeline("FISH")
+ANAGRAMS_tb <- find_timeline("ANAGRAMS")
+MUSIC_GENRES_tb <- find_timeline("MUSIC GENRES") 
+MUSICAL_INSTRUMENTS_tb <- find_timeline("MUSICAL INSTRUMENTS") 
+PALINDROMES_tb <- find_timeline("PALINDROMES")
+ANIMAL_GROUP_NAMES_tb <- find_timeline("ANIMAL GROUP NAMES")
+
+ggplot(HOMOPHONES_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+
+ggplot(FISH_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+
+ggplot(ANAGRAMS_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+# Rplot38
+ggplot(MUSIC_GENRES_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+# Rplot39
+ggplot(MUSICAL_INSTRUMENTS_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+# Rplot40
+ggplot(PALINDROMES_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+# Rplot41
+ggplot(ANIMAL_GROUP_NAMES_tb, aes(x = when, y = event.type, label = what)) +
+  geom_line() +
+  geom_point() +
+  geom_text(hjust = -0.3, angle = 45, cex = 2) +  
+  scale_x_date(name = "", date_breaks = "1 years") +
+  scale_y_discrete(name = "") +
+  theme_minimal()
+
+```

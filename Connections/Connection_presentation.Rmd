@@ -1,0 +1,267 @@
+---
+title: "Connections"
+author: "Olivia Modesto"
+date: "10-02-2025"
+output: beamer_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduzione: che cos'è Connections ?
+Connections è un videogioco.\
+\
+Sono proposte sedici parole in una griglia 4x4 e l'utente deve raggrupparle in quattro categorie, ciascuna con quattro parole.\
+Le parole possono essere sinonimi, avere caratteristiche condivise, oppure formare associazioni.\
+Queste quattro categorie hanno diversi livelli di difficoltà, indicati con colori diversi. Dal più facile al più difficile si ha : giallo, verde, blu, viola.\
+ 
+## Introduzione: che cos'è Connection ?
+
+![](images\Connection_gameplay)
+
+## Introduzione: che cos'è Connection ?
+
+![](images\Connection_solution)
+
+## Introduzione: descrizione problema
+
+Abbiamo a disposizione i dati di 619 partite.\
+Vogliamo analizzare i dati a disposizione per scoprire se soluzioni o parti di soluzioni sono state riutilizzate e, più in generale, se possiamo imparare qualcosa.\
+L'analisi è stata svolta modellando il problema in due modi:\
+ - in base ai gruppi\
+ - in base alle partite\
+
+## Le parole in relazione ai gruppi
+
+Ci sono parole che sono spesso raggruppate assieme ?\
+\
+Vogliamo mappare le parole in base ai loro gruppi di appartenenza.\
+Ogni vertice rappresenta una parola. Due vertici sono collegati da un arco se appartengono allo stesso gruppo.\
+ 
+## Le parole in relazione ai gruppi
+
+![](images\Rplot)
+
+## Le parole in relazione ai gruppi
+
+Si osserva che esiste una componente connessa principale e tante piccole componenti.\
+\
+Le piccole componenti rappresentano gruppi di parole isolate. Queste sono state utilizzate dai creatori del gioco solo una o due volte. Quindi, sono escluse dall'analisi.\
+\
+Sono di maggiore interesse le parole che sono utilizzate più frequentemente. Ci concentriamo sulla componente principale.\
+\
+Oltre ai gruppi in comune, ci interessiamo anche ai rispettivi livelli di difficoltà. Questi sono indicati dai colori degli archi.
+
+## Le parole in relazione ai gruppi
+
+![](images\Rplot01)
+
+## Le parole in relazione ai gruppi
+
+Questa componente comprende il 95.9% degli archi gialli, il 97.3% degli archi verdi, il 97.0% degli archi blu, il 93.8% degli archi viola.\
+\
+Si osserva una betweenness molto bassa. Nel contesto del gioco, questo potrebbe indicare che le parole nel grafo tendono a clusterizzarsi in gruppi relativamente indipendenti, con poche parole che fungono da ponte tra i diversi gruppi. Significa che le connessioni tra le parole sono più localizzate all'interno di specifici cluster.\
+Le cinque parole con betweenness più elevata sono:\
+```{r table1, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- "
+| BALL   | RING   | LOVE   | STICK  | BAR       |
+|-------:|-------:|-------:|-------:|----------:|
+| 0.0388 | 0.0283 | 0.0265 | 0.0255 |  0.0224   |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+## Le parole in relazione ai gruppi
+
+Si osserva una closeness centrality piuttosto bassa. Una centrality bassa significa che i cammini tra le parole sono piuttosto lunghi. Nel contesto del gioco questo potrebbe significare che le parole non riescono a "raggiungere" parole di altri gruppi velocemente.\
+Le cinque parole con closeness centrality più elevata sono:
+```{r table2, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- "
+| RING   | CLUB   | HEART  | BALL   | TRAIN   |
+|-------:|-------:|-------:|-------:|--------:|
+| 0.1332 | 0.1309 | 0.1302 | 0.1300 | 0.1297  |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+## Le parole in relazione ai gruppi
+
+Il fatto che il grafo presenta bassa betweenness e bassa closeness centrality potrebbe indicare che il gioco è piuttosto complesso. Le parole tendono ad essere segregate e a non collegarsi attraverso i gruppi. Potrebbe essere più difficile trovare le connessioni tra le parole.
+
+## Le parole in relazione ai gruppi
+
+Questa componente connessa ha un diametro di 18 parole. Dato che questa componente connessa ha 4656 nodi, questo è relativamente corto. Questo significa che il grafo è ben connesso.
+Le parole sul diametro sono :\
+MANHATTAN, HURRICANE, FACE, PIN, BALL, SOLE, TANG, FUNK, FOLK, DUB, CALL, RING, TRAIN, SCHOOL, POD, SOUP, WISH, GUEST\
+\
+Il fatto che la closeness centrality sia bassa può non contraddire un diametro corto. Ciò potrebbe indicare che la struttura del grafo non è centralizzata, bensì presenta dei cluster.
+
+## I vicini dei miei vicini 
+
+La transitività del grafo è 0.3705115. Questo valore indica una transitività moderata, quindi una moderata clusterizzazione. Questo è consistente con quanto visto finora.\
+Questo significa che esistono collegamenti forti tra parole, ma il grafo non ha cluster strettamente connessi.
+
+## Le coppie più popolari 
+
+Mi sono interessata alle coppie di parole. Non esistono coppie che ricorrono più di 9 volte sulle 619 partite. Le coppie che ricorrono 9 volte sono:\
+- YARD FOOT \
+- COUPLE TIE \
+- PERCH SOLE \
+- HORN HARP \
+- PLASMA SOLID \
+- GAS SOLID \
+- LIQUID SOLID \
+- GAS PLASMA \
+- LIQUID PLASMA \
+- LIQUID GAS \
+
+## Chi ha più vicini ?
+
+Mi sono interessata ai gradi assoluti delle parole. Ho creato una word cloud delle parole in base al loro grado assoluto.
+
+##
+
+![](images\Rplot04.png){height=90%, width=90%}
+
+## Chi ha più vicini ? 
+ 
+![](images\Rplot02)
+
+## Chi ha più vicini ? 
+
+![](images\Rplot23)
+
+## Un'altra misura di popolarità
+
+Proseguendo la valutazione dei gradi delle singole parole, è stata valutata l'eigenvector centrality.\
+Le 15 parole con eigenvector centrality più elevata sono:\
+
+![](images\Rplot33)
+
+## Un'altra misura di popolarità
+
+Si può osservare che non tutte le 15 parole che hanno grado più elevato compaiono tra le prime 15 parole con eigenvector centrality più alta. Quindi non tutte le parole molto popolari sono legate a parole molto popolari.\
+
+## Le parole in relazione alle partite
+
+Come accennato all'inizio, è stato valutato un secondo modello basato sulle partite piuttosto che i gruppi.
+
+## Le parole in relazione alle partite
+
+Un'altra relazione che può fornirci informazioni utili è quella riguardante le partite.\
+Esistono gruppi che sono stati riutilizzati in partite differenti ? \
+Esistono coppie o insiemi di parole che compaiono assieme in partite diverse ?\
+\
+Vogliamo mappare le parole in base alle partite nelle quali sono utilizzate.\
+Ogni vertice rappresenta una parola. Due vertici sono collegati da un arco se sono stati utilizzati nella stessa partita.
+
+## Le parole in relazione alle partite
+
+![](images\Rplot24)
+ 
+## Le parole in relazione alle partite
+
+Questo grafo non è connesso. Ha più componenti.\
+\
+A differenza di prima, nessuna porzione dei dati è stata omessa per la fase di analisi.
+\
+Le diverse partite sono evidenziate con colori diversi.\
+
+## Le parole in relazione alle partite
+
+![](C:\Users\olivi\Documents\GitHub\supermarket_cleaned\supermarket\Rplot25)
+
+## Questo modello è simile al precedente ?
+
+Si osserva una betweenness di un'ordine di grandezza più elevato. Questo significa che ci sono parole che compaiono in più sessioni di gioco e collegano parole altrimenti non connesse. Quindi esistono parole "versatili", che possono comparire in più gruppi.\
+Le cinque parole con betweenness più elevata non coincidono con le parole di prima.\
+```{r table3, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- "
+| KING   | GO     | BABY   | SEA    | BROWN    |
+|-------:|-------:|-------:|-------:|---------:|
+| 0.2186 | 0.1976 | 0.1345 | 0.1076 | 0.1038   |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+## Questo modello è simile al precedente ?
+
+La closeness centrality è di alcuni ordini più piccoli rispetto a quella vista con il modello precedente.\
+Quindi le parole sono meno strettamente connesse globalmente.\
+Le prime 16 parole con closeness più elevata sono tutte degli emoji. Questi compaiono solo nella partita 307. Essi sono parte di un cluster isolato e strettamente connesso.
+
+```{r table4, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- "
+| U+1F35E | U+1F9E0 | U+1FAD6 | U+1FA9A | U+1F631 |
+|--------:|--------:|--------:|--------:|--------:|
+| 0.0033  | 0.0033  | 0.0033  | 0.0033  | 0.0033  |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+## Questo modello è simile al precedente ?
+
+Una betweenness più alta e una centrality più bassa potrebbero indicare che le partite si concentrano di più su queste parole "versatili" e meno su un unico gruppo centrale di parole.
+
+## Questo modello è simile al precedente ?
+
+Questo modello ha un diametro più piccolo, di sole 11 parole. Questo potrebbe indicare che le parole sono più connesse, quindi, che è più facile trovare connessioni tra parole rispetto al primo modello.\ 
+Le parole del diametro sono:\
+CINDERELLA, CLEARANCE, LEAGUE, SEA, GO, KING, EYE, SWING, HUSTLE, PARADISE, PARALYMPICS.\
+
+## Chi ha più vicini ?
+
+![](images\Rplot27.png)
+
+## Chi ha più vicini ?
+
+![](images\Rplot32)
+
+## Un'altra misura di popolarità
+
+Come prima è stata valutata l'eigenvector centrality.\
+
+![](images\Rplot34)
+
+## Un'altra misura di popolarità
+
+Come nel primo modello, non tutte le 25 parole che hanno grado più elevato compaiono tra le prime 25 parole con eigenvector centrality più alta. Quindi non tutte le parole molto popolari compaiono nelle stesse partite di altre parole molto popolari.\
+
+## I gruppi sono riutilizzati in partite diverse ?
+Ci sono 137 gruppi che sono stati utilizzati più di una volta. I primi 25 sono:\
+
+![](images\Rplot28)
+
+## I gruppi sono riutilizzati in partite diverse ?
+
+Quindi, i concetti dei gruppi sono riutilizzati più e più volte. Questi poi possono contenere parole diverse.\
+Ho osservato la frequenza di utilizzo dei diversi gruppi. La maggior parte di essi viene proposta a intervalli di alcuni mesi, mentre i gruppi più popolari sono talvolta utilizzati due volte a pochi giorni di distanza.\
+
+## Le parole in relazione al tempo
+
+![](images\Rplot29)
+
+![](images\Rplot35)
+
+![](images\Rplot36)
+
+## Le parole in relazione al tempo
+
+![](images\Rplot37)
+
+![](images\Rplot38)
+
+![](images\Rplot39)
+
+## Le parole in relazione al tempo
+
+![](images\Rplot40)
+
+![](images\Rplot41)
+
+## Conclusione: cosa abbiamo imparato ?
+
+L'analisi riflette il fatto che il gioco propone diversi livelli di difficoltà per i raggruppamenti. Infatti alcune parole hanno livelli di betweenness elevata e saranno facili da raggruppare assieme.\
+Altre invece non hanno connessioni molto dirette e richiederanno maggiore impegno.\
+Il gioco risulta essere moderatamente impegnativo.\
