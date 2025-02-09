@@ -2,7 +2,11 @@
 title: "Connections"
 author: "Olivia Modesto"
 date: "10-02-2025"
-output: beamer_presentation
+output: 
+  beamer_presentation:
+    colortheme: "dove"
+    font: "structurebold"
+    slide_level: 2
 ---
 
 ```{r setup, include=FALSE}
